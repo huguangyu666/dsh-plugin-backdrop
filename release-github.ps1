@@ -1,57 +1,93 @@
-# release-github.ps1 — 推 GitHub 仓库并创建 v0.1.1 Release
-# 前置：任选其一
-#   ① 安装 GitHub CLI 并登录：  winget install GitHub.cli  →  gh auth login
-#   ② 或设置环境变量 GH_TOKEN=<fine-grained PAT 或 classic PAT，权限 Contents:write + 创建 release>
+# ============================================================
+# release-github.ps1 — 一条命令发布 dsh-plugin-backdrop
 #
-# 用法：在 dsh-plugin-backdrop 目录下  ./release-github.ps1
+# 用法:
+#   .\release-github.ps1 -Version 0.2.0    # 升到 0.2.0 → npm publish → GitHub Release
+#   .\release-github.ps1                   # 只用当前 package.json 版本发 GitHub（npm 假定已发）
+#   .\release-github.ps1 -Npm              # 不传版本也跑 npm publish（当前版本）
+#   .\release-github.ps1 -Version 0.2.0 -SkipGitHub   # 只 bump + npm publish，不建 GitHub
+#
+# 前置: gh 在 PATH 且已登录（gh auth login）；npm 已登录
+#       （gh 路径如在 C:\Users\www13\bin\gh，先加进 PATH 或在本脚本里补）
+# ============================================================
+param(
+  [string]$Version,      # 新版本号，如 0.2.0 / v0.2.0（传递时会自动 bump package.json）
+  [switch]$Npm,          # 即使不传 Version 也执行 npm publish（用当前版本）
+  [switch]$SkipGitHub    # 只做 npm publish，跳过 GitHub release
+)
 $ErrorActionPreference = 'Stop'
-$repo  = 'huguangyu666/dsh-plugin-backdrop'
-$ver   = 'v0.1.1'
-$tgz   = 'dsh-plugin-backdrop-0.1.1.tgz'
-$title = 'dsh-plugin-backdrop v0.1.1'
-$notes = @'
-## 0.1.1
+
+# 自愈：gh 不在 PATH 时，自动补常见用户安装路径
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+  foreach ($d in @("$env:USERPROFILE\bin\gh", "$env:LOCALAPPDATA\Programs\GitHub CLI\bin", "$env:LOCALAPPDATA\Microsoft\WinGet\Links")) {
+    if (Test-Path "$d\gh.exe") { $env:PATH = $d + ';' + $env:PATH; break }
+  }
+}
+
+$repo = 'huguangyu666/dsh-plugin-backdrop'
+
+# --- 工具函数：执行并校验退出码 ---
+function Invoke-Checked {
+  param([string]$Msg, [scriptblock]$Body)
+  Write-Host "== $Msg ==" -ForegroundColor Cyan
+  & $Body 2>&1 | ForEach-Object { Write-Host $_ }
+  if ($LASTEXITCODE -ne 0) { throw "上一步失败（exit $LASTEXITCODE）：$Msg" }
+}
+
+# --- 解析版本 ---
+$current = (Get-Content package.json -Raw | ConvertFrom-Json).version
+if ($Version) { $v = $Version.TrimStart('v') } else { $v = $current }
+$tag = "v$v"
+$tgz = "dsh-plugin-backdrop-$v.tgz"
+$doNpmPublish = $Npm -or [bool]$Version
+
+if ($v -ne $current) {
+  Write-Host "版本: $($current) -> $v"
+  Invoke-Checked "bump package.json 到 $v" { npm pkg set version=$v }
+} else {
+  Write-Host "版本: $v（package.json 已是此版本）" -ForegroundColor Yellow
+}
+
+# --- 1) npm publish（prepack 自动 build lib） ---
+if ($doNpmPublish -and -not $SkipGitHub) {
+  Invoke-Checked "npm publish $v" { npm publish }
+} elseif ($doNpmPublish) {
+  Invoke-Checked "npm publish $v（--SkipGitHub）" { npm publish }
+}
+
+if ($SkipGitHub) { Write-Host '已按 --SkipGitHub 跳过 GitHub 步骤。'; exit 0 }
+
+# --- 2) 打 tgz（GitHub 附件） ---
+if (-not (Test-Path $tgz)) {
+  Invoke-Checked "npm pack 生成 $tgz" { npm pack --silent }
+} else {
+  Write-Host "附件已存在：$tgz（如需重新生成请先删掉旧文件）" -ForegroundColor Yellow
+}
+
+# --- 3) git：提交 + tag + push ---
+git add package.json 2>$null
+git commit -m "chore: release v$v" 2>$null
+if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { throw "git commit 失败（$LASTEXITCODE）" }
+Invoke-Checked "git push origin main" { git push origin main }
+if (git rev-parse --verify "refs/tags/$tag" 2>$null) {
+  Write-Host "tag $tag 已存在，直接推送" -ForegroundColor Yellow
+  Invoke-Checked "git push origin $tag" { git push origin $tag }
+} else {
+  git tag -a $tag -m "dsh-plugin-backdrop $v"
+  Invoke-Checked "git push origin $tag" { git push origin $tag }
+}
+
+# --- 4) GitHub Release ---
+$notes = @"
+## $v
 
 - 循环接缝赛博朋克故障鲸鱼：视频末帧→首帧位置跳变用接缝故障盖住（白闪 + RGB 色差 + 切片撕裂 + 品红残影 + 掉帧 + 噪点）
-- 竖线/横线默认关闭（`vBars` / `scanlines` / `sliceEdges` 可配）
-- `pokeBurst()` 手动故障调试口 + 独立预览页 `preview-cyber.html`
-- 补 LICENSE(MIT)
-'@
+- 竖线/横线默认关闭（vBars / scanlines / sliceEdges 可配）
+- pokeBurst() 手动故障调试口 + 独立预览页 preview-cyber.html
+"@
+Invoke-Checked "gh release create $tag" { gh release create $tag $tgz --repo $repo --title "dsh-plugin-backdrop $v" --notes $notes }
 
-$hasGh = [bool](Get-Command gh -ErrorAction SilentlyContinue)
-$hasToken = [bool]$env:GH_TOKEN
-
-if (-not $hasGh -and -not $hasToken) {
-  Write-Error '需要 gh CLI（gh auth login）或 GH_TOKEN 环境变量之一，先做认证再重跑。'
-}
-
-# 1) tgz
-if (-not (Test-Path $tgz)) { npm pack --silent | Out-Null }
-
-# 2) remote
-if (-not (git remote | Select-String '^origin$')) { git remote add origin "https://github.com/$repo.git" }
-
-# 3) 仓库存在？不存在则创建
-git ls-remote "https://github.com/$repo.git" HEAD *> $null
-if ($LASTEXITCODE -ne 0) {
-  if ($hasGh) { gh repo create $repo --public --source=. --push --description 'dsh Web UI 动态背景：流体 + 字符鲸鱼游动(循环接缝赛博故障) + 鱼群 + 网格' }
-  else { Write-Error '仓库不存在且无 gh，无法自动创建；请先手动建 public 仓库 https://github.com/new 或装 gh。' }
-}
-
-# 4) 推送代码与 tag
-git push -u origin main --tags
-
-# 5) 创建/更新 Release
-if ($hasGh) {
-  gh release create $ver $tgz --title $title --notes $notes
-} else {
-  $uri  = "https://api.github.com/repos/$repo/releases"
-  $body = @{ tag_name = $ver; name = $title; body = $notes; draft = $false; prerelease = $false } | ConvertTo-Json
-  $rel  = Invoke-RestMethod -Uri $uri -Method POST -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -ContentType 'application/json' -Body $body
-  # 上传附件
-  $up  = "https://uploads.github.com/repos/$repo/releases/$($rel.id)/assets?name=$tgz&label=$tgz"
-  Invoke-RestMethod -Uri $up -Method POST -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; 'Content-Type' = 'application/octet-stream' } -InFile $tgz | Out-Null
-  Write-Output ("Release URL: " + $rel.html_url)
-}
-
-Write-Output 'GitHub Release 完成 ✔'
+Write-Host ""
+Write-Host "✔ 发布完成：v$v" -ForegroundColor Green
+Write-Host "  npm   : https://www.npmjs.com/package/dsh-plugin-backdrop"
+Write-Host "  github: https://github.com/$repo/releases/tag/$tag"
