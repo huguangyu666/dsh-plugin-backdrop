@@ -1,0 +1,4 @@
+# dsh-plugin-backdrop bundle patch：挂载插件自身
+- insert:
+    - id: backdrop
+      name: 'dsh-plugin-backdrop'

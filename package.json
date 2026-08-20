@@ -1,0 +1,63 @@
+{
+  "name": "dsh-plugin-backdrop",
+  "version": "0.1.1",
+  "description": "DeepSeek Harness 插件：把官网 Harness 鲸鱼背景注入 dsh Web UI——WebGL2 流体 + 字符鲸鱼游动（循环接缝赛博朋克故障转场）+ 发光鱼群 + 点线网格。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek",
+    "harness",
+    "background",
+    "backdrop",
+    "whale",
+    "webgl"
+  ],
+  "license": "MIT",
+  "author": "huguangyu666",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huguangyu666/dsh-plugin-backdrop.git"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.0-rc.6"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs"
+  },
+  "dependencies": {
+    "three": "0.150.1"
+  }
+}

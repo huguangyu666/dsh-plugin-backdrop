@@ -1,0 +1,13 @@
+# 依赖与构建产物
+node_modules/
+lib/
+*.tgz
+
+# 本地诊断/调试产物
+edge-*/
+*.png
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db
