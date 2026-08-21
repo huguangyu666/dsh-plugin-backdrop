@@ -9,7 +9,7 @@
  */
 import { createWhaleCanvas as createWhaleScene } from './engine/whale-canvas.js';
 import { createFishSchoolCanvas as createFishSchool } from './engine/fish-canvas.js';
-import { createFluidBackground } from './engine/fluid-background.js';
+import { createFluidBackground, DEEP_SEA_COLORS, DEEP_SEA_GLOW_COLORS } from './engine/fluid-background.js';
 import { createGridBackground } from './engine/grid-background.js';
 import whaleSvg from './hero-whale.svg';
 
@@ -24,7 +24,11 @@ const DEFAULT_CONFIG = {
   v: 2,             // 配置版本：v1 的旧鱼群参数会被强制迁移到 v2
   // 聊天场景调参：光效收敛，鲸鱼靠右；鼠标笔刷关闭（官网 Windows 默认行为，
   // 避免"一团光斑跟着鼠标"干扰阅读）
-  fluid: { glowIntensity: 0.07, lightCore: 0.1, lightHalo: 0.12, vignette: 0.42, interactive: false },
+  fluid: {
+    glowIntensity: 0.055, lightCore: 0.065, lightHalo: 0.1, vignette: 0.5,
+    bloomThreshold: 0.67, bloomRange: 0.16, bloomStrength: 0.22,
+    colors: [...DEEP_SEA_COLORS], glowColors: [...DEEP_SEA_GLOW_COLORS], interactive: false,
+  },
   whale: {
     density: 60, spin: false, loose: 1,
     swim: true, swimSpeed: 1.35, swimTurn: 0.6,
@@ -39,7 +43,7 @@ const DEFAULT_CONFIG = {
     light: { x: 4.5, y: 5.5, z: 3, range: 14, shadeMin: 0.3, shadeMax: 1.5, followX: 1.05 },
     color: { r: 0.62, g: 0.82, b: 1.0 },
   },
-  grid: { lineOpacity: 0.06, dotOpacity: 0.12 },
+  grid: { lineOpacity: 0.045, dotOpacity: 0.1 },
   // 主题策略：'force-dark' = 强制 dsh 官方暗色主题（组件配色整体变暗、文字变白，
   //   背景层完美融合，可读性由 dsh 自己的暗色样式保证）；'follow' = 跟随用户当前主题
   themeMode: 'force-dark',
@@ -90,7 +94,7 @@ function forceDark() {
   if (!document.body.hasAttribute(DARK_ATTR)) {
     document.body.setAttribute(DARK_ATTR, '');
   }
-  document.body.style.backgroundColor = '#1e1e20';
+  document.body.style.backgroundColor = '#030a16';
 }
 function unforceDark() {
   document.body.removeAttribute(DARK_ATTR);
@@ -136,11 +140,17 @@ function injectShadowComposerStyles() {
     const style = document.createElement('style');
     style.className = 'backdrop-composer-fix';
     style.textContent = [
-      '.uV2eYG_root, .uV2eYG_card, .uV2eYG_scroll, .uV2eYG_grow, .uV2eYG_backdrop, .uV2eYG_mirror, .uV2eYG_input {',
+      '.uV2eYG_root, .uV2eYG_scroll, .uV2eYG_grow, .uV2eYG_backdrop, .uV2eYG_mirror, .uV2eYG_input {',
       '  background: transparent !important;',
       '  background-color: transparent !important;',
       '  background-image: none !important;',
       '  box-shadow: none !important;',
+      '}',
+      '.uV2eYG_card {',
+      '  background: rgba(3, 15, 31, .34) !important;',
+      '  background-image: none !important;',
+      '  border: 1px solid rgba(188, 231, 229, .12) !important;',
+      '  box-shadow: 0 20px 60px rgba(0, 0, 0, .18) !important;',
       '}',
       '.uV2eYG_input { color: #e8eefc !important; caret-color: #6ea8ff !important; }',
       '.uV2eYG_backdrop::before, .uV2eYG_backdrop::after, .uV2eYG_input::before, .uV2eYG_input::after, .uV2eYG_mirror::before, .uV2eYG_mirror::after, .wSkVaW_composerSeat::before, .wSkVaW_composerSeat::after {',
@@ -165,9 +175,13 @@ function fixComposerTransparency() {
       el.style.setProperty('background-image', 'none', 'important');
       el.style.setProperty('color', '#e8eefc', 'important');
       el.style.setProperty('caret-color', '#6ea8ff', 'important');
+    } else if (cls.includes('uV2eYG_card')) {
+      el.style.setProperty('background-color', 'rgba(3, 15, 31, .34)', 'important');
+      el.style.setProperty('background-image', 'none', 'important');
+      el.style.setProperty('border', '1px solid rgba(188, 231, 229, .12)', 'important');
+      el.style.setProperty('box-shadow', '0 20px 60px rgba(0, 0, 0, .18)', 'important');
     } else if (
       cls.includes('uV2eYG_root') ||
-      cls.includes('uV2eYG_card') ||
       cls.includes('uV2eYG_scroll') ||
       cls.includes('uV2eYG_grow') ||
       cls.includes('uV2eYG_backdrop') ||
@@ -191,6 +205,7 @@ function removeSidebarGradients() {
   const leftLimit = window.innerWidth * 0.45;
   visitAll(document.body, (el) => {
     if (!el.style || !el.className) return;
+    if (el.classList && el.classList.contains('backdrop-root')) return;
     let r;
     try { r = el.getBoundingClientRect(); } catch { return; }
     if (r.left > leftLimit) return;
@@ -279,17 +294,21 @@ export function apply(ctx) {
     const styleEl = document.createElement('style');
     styleEl.dataset.backdropStyle = '1';
     styleEl.textContent = [
-      'body { background-color: #1e1e20 !important; }',
-      '.backdrop-root ~ * .pI_x6G_frame { background: transparent !important; }',
-      '.backdrop-root ~ * .pI_x6G_sidebarCol { background: transparent !important; }',
+      'body { background-color: #030a16 !important; }',
+      '.backdrop-root { isolation: isolate; }',
+      '.backdrop-root::before { content: ""; position: absolute; inset: 0; z-index: 4; pointer-events: none; background: radial-gradient(ellipse 56% 55% at 68% 46%, rgba(63,175,186,.14) 0%, rgba(63,175,186,0) 72%), linear-gradient(90deg, rgba(2,8,18,.34), transparent 32%, rgba(2,8,18,.08)); }',
+      '.backdrop-root::after { content: ""; position: absolute; inset: 0; z-index: 5; pointer-events: none; background: radial-gradient(ellipse at 53% 49%, transparent 0%, rgba(2,8,18,.08) 58%, rgba(1,6,15,.42) 100%); }',
+      '.backdrop-root ~ * .pI_x6G_frame { background: rgba(3,10,22,.12) !important; }',
+      '.backdrop-root ~ * .pI_x6G_sidebarCol { background: rgba(3,12,25,.72) !important; border-right: 1px solid rgba(168,222,224,.1) !important; }',
       '.backdrop-root ~ * .qDHVXG_root, .backdrop-root ~ * .qDHVXG_listArea, .backdrop-root ~ * .qDHVXG_treeBody, .backdrop-root ~ * .qDHVXG_list, .backdrop-root ~ * .qDHVXG_groupSection, .backdrop-root ~ * .hHd-Xa_root, .backdrop-root ~ * .hHd-Xa_regionArea { background: transparent !important; }',
       '.backdrop-root ~ * .qDHVXG_root::before, .backdrop-root ~ * .qDHVXG_root::after, .backdrop-root ~ * .qDHVXG_listArea::before, .backdrop-root ~ * .qDHVXG_listArea::after, .backdrop-root ~ * .hHd-Xa_root::before, .backdrop-root ~ * .hHd-Xa_root::after, .backdrop-root ~ * .hHd-Xa_regionArea::before, .backdrop-root ~ * .hHd-Xa_regionArea::after { background: transparent !important; background-image: none !important; }',
-      '.backdrop-root ~ * .pI_x6G_centerCol { background: transparent !important; }',
+      '.backdrop-root ~ * .pI_x6G_centerCol { background: rgba(3,10,22,.04) !important; }',
       '.backdrop-root ~ * .pI_x6G_detailsCol { background: transparent !important; }',
-      '.backdrop-root ~ * .wSkVaW_root { background: transparent !important; }',
+      '.backdrop-root ~ * .wSkVaW_root { background: rgba(3,15,31,.22) !important; border: 1px solid rgba(188,231,229,.12) !important; box-shadow: 0 20px 60px rgba(0,0,0,.18) !important; }',
       '.backdrop-root ~ * .hHd-Xa_root { background: transparent !important; }',
       '.backdrop-root ~ * .ydkMvW_root { background: transparent !important; }',
-      '.backdrop-root ~ * .uV2eYG_root, .backdrop-root ~ * .uV2eYG_card, .backdrop-root ~ * .uV2eYG_scroll, .backdrop-root ~ * .uV2eYG_grow, .backdrop-root ~ * .uV2eYG_backdrop, .backdrop-root ~ * .uV2eYG_mirror, .backdrop-root ~ * .uV2eYG_input { background-color: transparent !important; background-image: none !important; box-shadow: none !important; }',
+      '.backdrop-root ~ * .uV2eYG_root, .backdrop-root ~ * .uV2eYG_scroll, .backdrop-root ~ * .uV2eYG_grow, .backdrop-root ~ * .uV2eYG_backdrop, .backdrop-root ~ * .uV2eYG_mirror, .backdrop-root ~ * .uV2eYG_input { background-color: transparent !important; background-image: none !important; box-shadow: none !important; }',
+      '.backdrop-root ~ * .uV2eYG_card { background: rgba(3,15,31,.34) !important; background-image: none !important; border: 1px solid rgba(188,231,229,.12) !important; box-shadow: 0 20px 60px rgba(0,0,0,.18) !important; }',
       '.backdrop-root ~ * .uV2eYG_input { color: #e8eefc !important; caret-color: #6ea8ff !important; }',
     ].join('\n');
     document.head.appendChild(styleEl);
