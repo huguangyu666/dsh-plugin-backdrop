@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-backdrop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DeepSeek Harness 插件：把官网 Harness 鲸鱼背景注入 dsh Web UI——WebGL2 流体 + 字符鲸鱼游动（循环接缝赛博朋克故障转场）+ 发光鱼群 + 点线网格。",
   "type": "module",
   "main": "lib/index.js",
