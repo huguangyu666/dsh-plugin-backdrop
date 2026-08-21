@@ -1,4 +1,6 @@
 # dsh-plugin-backdrop — DeepSeek Harness 动态背景插件
+<img width="2549" height="1361" alt="image" src="https://github.com/user-attachments/assets/6ffb84c4-462c-4aeb-a2dc-12af14e08f21" />
+<img width="2549" height="1361" alt="image" src="https://github.com/user-attachments/assets/5e01be73-0747-4dab-8495-86e1eff62800" />
 
 把 DeepSeek Harness 官网 hero 的完整氛围（**流体 + 平滑鲸鱼 + 发光鱼群 + 点线网格**）
 注入 dsh Web UI 作为动态背景。当前实现为混合渲染：
