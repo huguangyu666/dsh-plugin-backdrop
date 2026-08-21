@@ -48,13 +48,30 @@
 
 ## 安装启用
 
-> **先理解插件解析机制**（盲测发现新用户卡在这）：
-> `cordis.patch.yml` / `--patch` 里的 `name: 'dsh-plugin-backdrop'` 会先尝试从 dsh 安装
-> 解析，再从 **profile 的 `node_modules`**（`~/.dsh/profiles/web/node_modules`）解析。
-> 所以**本地测试必须先把包放进该目录**（下面第 1 步），否则启动会报
-> `plugin not found`。
+> **推荐直接用官方安装命令**（一条命令，自动挂载，见方式 ①）。
+> 本地改代码想立即生效再看方式 ②；方式 ③ 是官方命令不可用时的备份。
 
-### 方式 A：本地源码开发（推荐，改代码立即生效）
+### 方式 ①：官方安装（推荐给所有用户）
+
+插件已发 npm，且包内声明了 `dsh.bundle.patch`（`cordis.patch.yml`）与
+`dsh.client.platform: web`，所以能用 dsh 官方插件管理命令直接装：
+
+```bash
+# 安装（在 profile 目录自动 pnpm add + 识别 dsh.bundle.patch 写入 bundles）
+dsh plugin --profile web add dsh-plugin-backdrop
+
+# 卸载
+dsh plugin --profile web remove dsh-plugin-backdrop
+```
+
+装完 **重启 dsh**（重启会断开当前会话，挑空闲时操作）刷新页面即可。
+官方命令内部会跑 `pnpm`，需要 `pnpm` 在 PATH；Windows 下若无代理 pnpm 挂起，
+请给 `HTTPS_PROXY` 配置代理。
+
+> ⚠️ 二选一：如果你已经走「方式 ② 本地开发」手动挂过 backdrop，
+> **别再跑官方 add**，否则报 `duplicate loader entry id: backdrop`。
+
+### 方式 ②：本地源码开发（改代码立即生效）
 
 前提：仓库源码在你机器上，例如 `C:\Users\www13\Documents\AAA项目集\dsh-plugins\dsh-plugin-backdrop`。
 
@@ -70,7 +87,7 @@
    ```
 3. **重启** `dsh web`（重启会断开当前会话，挑空闲时操作），刷新页面。
 
-### 方式 B：发布安装（插件已发 npm 时）
+### 方式 ③：手动发布安装（官方命令不可用时的备份）
 
 ```powershell
 cd ~/.dsh/profiles/web
