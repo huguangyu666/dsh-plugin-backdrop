@@ -12,22 +12,15 @@ import { FLUID_SHADERS } from './fluid-shaders.js';
 
 'use strict';
 
-export const DEEP_SEA_COLORS = Object.freeze([
-  '#030a16', '#0b2954', '#145278', '#7fa9a5', '#04111d',
-]);
-export const DEEP_SEA_GLOW_COLORS = Object.freeze([
-  '#c8eee8', '#4da9bf', '#19366e',
-]);
-
   // 官网 hero 的默认参数（_ 变量）
   const DEFAULTS = {
     mouseRadius: 0.09, mouseStrength: 1.8, mouseSmoothing: 0.1, mouseVelocity: 0.2,
-    decay: 0.925, distortBoost: 2.2, noiseBoost: 0.3, swirlBoost: 0.8, glowIntensity: 0.1,
-    glowColors: [...DEEP_SEA_GLOW_COLORS],
+    decay: 0.925, distortBoost: 2.2, noiseBoost: 0.3, swirlBoost: 0.8, glowIntensity: 0.13,
+    glowColors: ['#fff7d1', '#538dca', '#2d448b'],
     speed: 28, scale: 1.77, offsetX: -124, offsetY: -48, grain: 0.005,
-    colors: [...DEEP_SEA_COLORS],
-    lightX: 0.89, lightY: 0.46, lightCore: 0.08, lightHalo: 0.12, vignette: 0.5,
-    lightFollow: 0.63, bloomThreshold: 0.67, bloomRange: 0.16, bloomStrength: 0.22,
+    colors: ['#000000', '#1A3870', '#204a7e', '#eed8aa', '#000000'],
+    lightX: 0.89, lightY: 0.46, lightCore: 0.14, lightHalo: 0.2, vignette: 0.38,
+    lightFollow: 0.63, bloomThreshold: 0.61, bloomRange: 0.18, bloomStrength: 0.4,
     interactive: true,   // 官网在 Windows 上禁用鼠标交互，这里默认开启便于体验
     fps: 30,
   };
