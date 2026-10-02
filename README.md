@@ -34,7 +34,7 @@
 
 - **流体背景**：WebGL2 flowmap 双缓冲 + fbm/curl-noise 域扭曲，5 层深蓝-暖金渐变，
   自发光 bloom + 虚拟光源（跟随鼠标 X）+ 颗粒噪点 + 暗角
-- **路径复刻鲸鱼**：视频抽帧的游动动画（35 帧字符画，~6fps），
+- **路径复刻鲸鱼**：按原视频逐帧转换的游动字符动画（210 帧，30fps），
   整只鲸鱼在界面里水平无缝漫游、上下呼吸浮动、气泡；
   **循环接缝赛博朋克故障**：视频末帧与首帧不重合（循环重启会"拉回"），
   在接缝瞬间自动打一个故障爆发（白闪 + RGB 色差 + 横条撕裂 + 品红残影 +
@@ -366,7 +366,7 @@ dsh-plugin-backdrop/
     ├── hero-whale.svg         # 官网原版鲸鱼剪影
     └── engine/
         ├── whale-canvas.js        # 字符动画鲸鱼 + 循环接缝赛博朋克故障（当前）
-        ├── whale-ascii-frames.js  # 视频抽帧的鲸鱼字符帧数据（35 帧）
+        ├── whale-ascii-frames.js  # 原视频逐帧转换的鲸鱼字符帧数据（210 帧，30fps）
         ├── whale-video-paths.js   # 从视频提取的鲸鱼关键帧轮廓数据
         ├── fish-canvas.js         # 新版 Canvas 发光鱼群（预渲染精灵）
         ├── fluid-background.js    # 流体背景（WebGL2 flowmap 双缓冲）

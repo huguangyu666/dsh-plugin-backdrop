@@ -1,7 +1,7 @@
 /* ============================================================
  * whale-canvas.js — 鲸鱼游动动画 + 赛博朋克循环接缝故障
  *
- * 背景：鲸鱼是从视频抽帧的游动动画（35 帧，~6fps），视频里鲸鱼不断向前游，
+ * 背景：鲸鱼是从视频逐帧转换的字符动画（保留原视频 30fps），视频里鲸鱼不断向前游，
  *       末帧与首帧在画面里的位置不重合（实测帧 0 占 0..59 列，末帧占 2..63 列，
  *       循环重启会向左跳 ~3 列），观感即"游着游着被拉回"。
  *
@@ -16,7 +16,7 @@
  *   帧 34→帧 0 的瞬间，把 ~3 列的位置跳变藏进故障。
  * ============================================================ */
 
-import { WHALE_ASCII_FRAMES } from './whale-ascii-frames.js';
+import { WHALE_ASCII_FPS, WHALE_ASCII_FRAMES } from './whale-ascii-frames.js';
 
 const COLS = 64;
 const ROWS = 32;
@@ -24,7 +24,7 @@ const SPRITE_W = 480;
 const SPRITE_H = 240;
 const CELL = SPRITE_W / COLS;         // 7.5px 字符格（宽高同为 7.5）
 const FRAME_COUNT = WHALE_ASCII_FRAMES.length;
-const LOOP_DURATION = FRAME_COUNT / 6; // ~35/6 ≈ 5.83s 一圈
+const LOOP_DURATION = FRAME_COUNT / WHALE_ASCII_FPS;
 
 // ---------- 导出（保持旧 API 兼容 + 测试） ----------
 export function getSwimHeading(fromX, fromY, toX, toY) {
@@ -57,7 +57,7 @@ export function getWhaleRigPose(progress, phase) {
 
 // 当前循环相位对应的那帧鲸鱼字符行
 function getFrameLines(elapsed) {
-  const t = ((elapsed % LOOP_DURATION) / LOOP_DURATION) * FRAME_COUNT;
+  const t = ((elapsed % LOOP_DURATION) * WHALE_ASCII_FPS);
   const i = Math.floor(t) % FRAME_COUNT;
   return WHALE_ASCII_FRAMES[i];
 }
