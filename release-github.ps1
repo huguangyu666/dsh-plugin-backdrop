@@ -1,79 +1,109 @@
 # ============================================================
-# release-github.ps1 — 一条命令发布 dsh-plugin-backdrop
+# release-github.ps1 - one-command release for dsh-plugin-backdrop
 #
-# 用法:
-#   .\release-github.ps1 -Version 0.2.0    # 升到 0.2.0 → npm publish → GitHub Release
-#   .\release-github.ps1                   # 只用当前 package.json 版本发 GitHub（npm 假定已发）
-#   .\release-github.ps1 -Npm              # 不传版本也跑 npm publish（当前版本）
-#   .\release-github.ps1 -Version 0.2.0 -SkipGitHub   # 只 bump + npm publish，不建 GitHub
+# Usage:
+#   .\release-github.ps1 -Version 0.2.0              # bump -> npm publish -> GitHub Release
+#   .\release-github.ps1                             # GitHub release only (current version)
+#   .\release-github.ps1 -Npm                        # force npm publish too (current version)
+#   .\release-github.ps1 -Version 0.2.0 -SkipGitHub  # bump + npm publish only
 #
-# 前置: gh 在 PATH 且已登录（gh auth login）；npm 已登录
-#       （gh 路径如在 C:\Users\www13\bin\gh，先加进 PATH 或在本脚本里补）
+# Idempotent: if the npm version already exists it is skipped; runs can be
+# re-executed safely.
+#
+# Prereqs: git + npm logged-in; gh installed+authenticated. Self-heals gh PATH
+# for common user install dirs (e.g. $USERPROFILE\bin\gh).
 # ============================================================
 param(
-  [string]$Version,      # 新版本号，如 0.2.0 / v0.2.0（传递时会自动 bump package.json）
-  [switch]$Npm,          # 即使不传 Version 也执行 npm publish（用当前版本）
-  [switch]$SkipGitHub    # 只做 npm publish，跳过 GitHub release
+  [string]$Version,     # e.g. 0.2.0 or v0.2.0 (bumps package.json when given)
+  [switch]$Npm,         # also run npm publish even without -Version
+  [switch]$SkipGitHub   # npm publish only, skip the GitHub release
 )
-$ErrorActionPreference = 'Stop'
 
-# 自愈：gh 不在 PATH 时，自动补常见用户安装路径
+# NOTE: deliberately NO global $ErrorActionPreference='Stop' - PS 5.1 turns
+# native stderr (git LF/CRLF warnings, esbuild progress) into terminating
+# errors under Stop mode. We check exit codes explicitly instead.
+
+# --- helpers ---
+function Invoke-Checked {
+  param([string]$Msg, [scriptblock]$Body)
+  Write-Host "== $Msg ==" -ForegroundColor Cyan
+  # native stderr must not terminate; capture both streams, surface text
+  $prevEAP = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $out = & $Body 2>&1
+    foreach ($line in $out) { Write-Host $line }
+    if ($LASTEXITCODE -ne 0) { throw "Step failed (exit $LASTEXITCODE): $Msg" }
+  } finally {
+    $ErrorActionPreference = $prevEAP
+  }
+}
+
+# run a native command quietly (suppress stderr warnings), return its exit code
+function Invoke-Quiet {
+  param([scriptblock]$Body)
+  $prevEAP = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $Body 2>$null | Out-Null } catch { }
+  finally { $ErrorActionPreference = $prevEAP }
+  return $LASTEXITCODE
+}
+
+# --- self-heal gh PATH ---
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   foreach ($d in @("$env:USERPROFILE\bin\gh", "$env:LOCALAPPDATA\Programs\GitHub CLI\bin", "$env:LOCALAPPDATA\Microsoft\WinGet\Links")) {
     if (Test-Path "$d\gh.exe") { $env:PATH = $d + ';' + $env:PATH; break }
   }
 }
 
-$repo = 'huguangyu666/dsh-plugin-backdrop'
+$repo = 'dsh-plugin-backdrop'
+$npmName = 'dsh-plugin-backdrop'
 
-# --- 工具函数：执行并校验退出码 ---
-function Invoke-Checked {
-  param([string]$Msg, [scriptblock]$Body)
-  Write-Host "== $Msg ==" -ForegroundColor Cyan
-  & $Body 2>&1 | ForEach-Object { Write-Host $_ }
-  if ($LASTEXITCODE -ne 0) { throw "上一步失败（exit $LASTEXITCODE）：$Msg" }
-}
-
-# --- 解析版本 ---
-$current = (Get-Content package.json -Raw | ConvertFrom-Json).version
+# --- resolve version (via npm to dodge PS 5.1 ANSI/UTF-8 misreads) ---
+$current = (npm pkg get version).Trim('"').Trim()
 if ($Version) { $v = $Version.TrimStart('v') } else { $v = $current }
 $tag = "v$v"
 $tgz = "dsh-plugin-backdrop-$v.tgz"
 $doNpmPublish = $Npm -or [bool]$Version
 
 if ($v -ne $current) {
-  Write-Host "版本: $($current) -> $v"
-  Invoke-Checked "bump package.json 到 $v" { npm pkg set version=$v }
+  Write-Host "Version: $current -> $v"
+  Invoke-Checked "bump package.json to $v" { npm pkg set version=$v }
 } else {
-  Write-Host "版本: $v（package.json 已是此版本）" -ForegroundColor Yellow
+  Write-Host "Version: $v (package.json already at this version)" -ForegroundColor Yellow
 }
 
-# --- 1) npm publish（prepack 自动 build lib） ---
-if ($doNpmPublish -and -not $SkipGitHub) {
-  Invoke-Checked "npm publish $v" { npm publish }
-} elseif ($doNpmPublish) {
-  Invoke-Checked "npm publish $v（--SkipGitHub）" { npm publish }
+# --- 1) npm publish (skipped if the version already exists) ---
+if ($doNpmPublish) {
+  $code = Invoke-Quiet { npm view "$npmName@$v" version }
+  if ($code -eq 0) {
+    Write-Host "npm: $v already published, skipping" -ForegroundColor Yellow
+  } else {
+    $step = if ($SkipGitHub) { "npm publish $v (with --SkipGitHub)" } else { "npm publish $v" }
+    Invoke-Checked $step { npm publish }
+  }
 }
 
-if ($SkipGitHub) { Write-Host '已按 --SkipGitHub 跳过 GitHub 步骤。'; exit 0 }
+if ($SkipGitHub) { Write-Host 'Skipped GitHub steps (--SkipGitHub). Done.'; exit 0 }
 
-# --- 2) 打 tgz（GitHub 附件） ---
+# --- 2) pack the tgz (GitHub release asset) ---
 if (-not (Test-Path $tgz)) {
-  Invoke-Checked "npm pack 生成 $tgz" { npm pack --silent }
+  Invoke-Checked "npm pack -> $tgz" { npm pack --silent }
 } else {
-  Write-Host "附件已存在：$tgz（如需重新生成请先删掉旧文件）" -ForegroundColor Yellow
+  Write-Host "Asset exists: $tgz (delete it first to regenerate)" -ForegroundColor Yellow
 }
 
-# --- 3) git：提交 + tag + push ---
-git add package.json 2>$null
-git commit -m "chore: release v$v" 2>$null
-if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { throw "git commit 失败（$LASTEXITCODE）" }
+# --- 3) git: commit version bump, tag, push ---
+Invoke-Quiet { git add package.json }
+Invoke-Quiet { git commit -m "chore: release v$v" }
 Invoke-Checked "git push origin main" { git push origin main }
-if (git rev-parse --verify "refs/tags/$tag" 2>$null) {
-  Write-Host "tag $tag 已存在，直接推送" -ForegroundColor Yellow
+
+$tagExists = Invoke-Quiet { git rev-parse --verify "refs/tags/$tag" }
+if ($tagExists -eq 0) {
+  Write-Host "tag $tag exists, pushing it" -ForegroundColor Yellow
   Invoke-Checked "git push origin $tag" { git push origin $tag }
 } else {
-  git tag -a $tag -m "dsh-plugin-backdrop $v"
+  Invoke-Quiet { git tag -a $tag -m "dsh-plugin-backdrop $v" }
   Invoke-Checked "git push origin $tag" { git push origin $tag }
 }
 
@@ -81,13 +111,14 @@ if (git rev-parse --verify "refs/tags/$tag" 2>$null) {
 $notes = @"
 ## $v
 
-- 循环接缝赛博朋克故障鲸鱼：视频末帧→首帧位置跳变用接缝故障盖住（白闪 + RGB 色差 + 切片撕裂 + 品红残影 + 掉帧 + 噪点）
-- 竖线/横线默认关闭（vBars / scanlines / sliceEdges 可配）
-- pokeBurst() 手动故障调试口 + 独立预览页 preview-cyber.html
+- Loop-seam cyberpunk glitch whale: the video last->first frame jump is hidden by a seam burst (white flash + RGB split + slice tear + magenta ghost + drop frame + noise)
+- Vertical/horizontal lines off by default (vBars / scanlines / sliceEdges configurable)
+- pokeBurst() manual glitch hook + standalone preview page preview-cyber.html
+- Official install: dsh plugin --profile web add $npmName
 "@
-Invoke-Checked "gh release create $tag" { gh release create $tag $tgz --repo $repo --title "dsh-plugin-backdrop $v" --notes $notes }
+Invoke-Checked "gh release create $tag" { gh release create $tag $tgz --repo "huguangyu666/$repo" --title "dsh-plugin-backdrop $v" --notes $notes }
 
 Write-Host ""
-Write-Host "✔ 发布完成：v$v" -ForegroundColor Green
-Write-Host "  npm   : https://www.npmjs.com/package/dsh-plugin-backdrop"
-Write-Host "  github: https://github.com/$repo/releases/tag/$tag"
+Write-Host "== Release complete: v$v ==" -ForegroundColor Green
+Write-Host "  npm   : https://www.npmjs.com/package/$npmName"
+Write-Host "  github: https://github.com/huguangyu666/$repo/releases/tag/$tag"

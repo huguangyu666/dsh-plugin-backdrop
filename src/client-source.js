@@ -7,7 +7,9 @@
  *   3. 主题联动：dark 直接用；light 强制注入暗色文字 token 并持续维护
  *   4. 暴露 window.__backdrop 调试 API
  */
-import { createWhaleCanvas as createWhaleScene } from './engine/whale-canvas.js';
+import { createWhaleCanvas as createVideoWhale } from './engine/whale-canvas.js';
+import { createWhaleCanvas as createProceduralWhale } from './engine/whale-procedural.js';
+import { DEFAULT_WHALE_ENGINE, migrateWhaleEngine } from './engine/whale-engine-selection.js';
 import { createFishSchoolCanvas as createFishSchool } from './engine/fish-canvas.js';
 import { createFluidBackground } from './engine/fluid-background.js';
 import { createGridBackground } from './engine/grid-background.js';
@@ -21,11 +23,14 @@ const DEFAULT_CONFIG = {
   enabled: true,
   layers: { fluid: true, whale: true, fish: false, grid: true },
   opacity: 1,
-  v: 2,             // 配置版本：v1 的旧鱼群参数会被强制迁移到 v2
+  v: 3,             // 配置版本：v1/v2 的程序化鲸鱼默认值迁移回视频字符鲸鱼
   // 聊天场景调参：光效收敛，鲸鱼靠右；鼠标笔刷关闭（官网 Windows 默认行为，
   // 避免"一团光斑跟着鼠标"干扰阅读）
   fluid: { glowIntensity: 0.07, lightCore: 0.1, lightHalo: 0.12, vignette: 0.42, interactive: false },
   whale: {
+    // 'procedural' = 代码生成的 ASCII 鲸鱼（偶尔游过，空闲不占 rAF）；
+    // 'video' = 旧的视频帧鲸鱼。切换后刷新页面生效。
+    engine: DEFAULT_WHALE_ENGINE,
     density: 60, spin: false, loose: 1,
     swim: true, swimSpeed: 1.35, swimTurn: 0.6,
     light: { x: 4.5, y: 5.5, z: 3, range: 14, shadeMin: 0.2, shadeMax: 1.35, followX: 1.05 },
@@ -50,16 +55,18 @@ function loadConfig() {
     const raw = localStorage.getItem('dsh-backdrop-config');
     if (!raw) return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
     const saved = JSON.parse(raw);
-      // v1 → v2 迁移：旧 localStorage 里存的是旧鱼群参数，强制换新版鱼群默认值
-      if (saved.v !== 2) {
+      // v1/v2 → v3 迁移：恢复原来的视频转字符鲸鱼，避免旧默认值继续覆盖新默认值
+      if (saved.v !== 3) {
         const migrated = {
           ...DEFAULT_CONFIG,
           ...saved,
-          v: 2,
+          v: 3,
           layers: { ...DEFAULT_CONFIG.layers, ...(saved.layers || {}) },
           fluid: { ...DEFAULT_CONFIG.fluid, ...(saved.fluid || {}) },
           whale: {
-            ...DEFAULT_CONFIG.whale, ...(saved.whale || {}),
+            ...DEFAULT_CONFIG.whale,
+            ...(saved.whale || {}),
+            engine: migrateWhaleEngine({ version: saved.v || 0, engine: (saved.whale || {}).engine }),
             light: { ...DEFAULT_CONFIG.whale.light, ...((saved.whale || {}).light || {}) },
             mouse: { ...DEFAULT_CONFIG.whale.mouse, ...((saved.whale || {}).mouse || {}) },
           },
@@ -70,7 +77,7 @@ function loadConfig() {
         return migrated;
       }
     // 浅合并 + 嵌套合并
-    return {
+    const config = {
       ...DEFAULT_CONFIG, ...saved,
       layers: { ...DEFAULT_CONFIG.layers, ...(saved.layers || {}) },
       fluid: { ...DEFAULT_CONFIG.fluid, ...(saved.fluid || {}) },
@@ -78,6 +85,8 @@ function loadConfig() {
       fish: { ...DEFAULT_CONFIG.fish, ...(saved.fish || {}), light: { ...DEFAULT_CONFIG.fish.light, ...((saved.fish || {}).light || {}) }, color: { ...DEFAULT_CONFIG.fish.color, ...((saved.fish || {}).color || {}) } },
       grid: { ...DEFAULT_CONFIG.grid, ...(saved.grid || {}) },
     };
+    config.whale.engine = migrateWhaleEngine({ version: saved.v, engine: config.whale.engine });
+    return config;
   } catch { return JSON.parse(JSON.stringify(DEFAULT_CONFIG)); }
 }
 
@@ -96,24 +105,76 @@ function unforceDark() {
   document.body.removeAttribute(DARK_ATTR);
 }
 
-// ---------- 透明化扫描（类名失效时的 fallback） ----------
+// ---------- 容器透明化（按几何判定，不依赖构建期类名） ----------
+// dsh 的 CSS module 类名带构建哈希（rc.6 是 pI_x6G_*，0.2.0 是 BynINW_* / _2H3hWW_*），
+// 换版本就全失效。这里只按“占视口面积 + 计算样式”判定：
+//   覆盖 ≥ SURFACE_MIN_COVER 的不透明容器 → 透明；
+//   z-index ≥ OVERLAY_MIN_Z 的子树视为弹窗/浮层，保持原样。
+const SURFACE_MIN_COVER = 0.15;
+const OVERLAY_MIN_Z = 50;
+const touchedSurfaces = new Set();
+
+function hasOpaquePaint(el) {
+  const cs = getComputedStyle(el);
+  const m = /rgba?\(([^)]+)\)/.exec(cs.backgroundColor);
+  if (m) {
+    const p = m[1].split(',').map(Number);
+    const a = p.length > 3 ? p[3] : 1;
+    if (a >= 0.85) return true;
+  }
+  const img = cs.backgroundImage;
+  return !!(img && img !== 'none' && /gradient/i.test(img));
+}
+
+function inOverlay(el) {
+  for (let e = el; e && e !== document.body; e = e.parentElement) {
+    const z = getComputedStyle(e).zIndex;
+    if (z !== 'auto' && Number(z) >= OVERLAY_MIN_Z) return true;
+    if (e.getAttribute('role') === 'dialog' || e.getAttribute('aria-modal') === 'true') return true;
+    if (e.tagName === 'DIALOG' && e.hasAttribute('open')) return true;
+  }
+  return false;
+}
+
+function clearSurface(el) {
+  el.style.setProperty('background-color', 'transparent', 'important');
+  el.style.setProperty('background-image', 'none', 'important');
+  touchedSurfaces.add(el);
+}
+
+function restoreSurfaces() {
+  for (const el of touchedSurfaces) {
+    el.style.removeProperty('background-color');
+    el.style.removeProperty('background-image');
+  }
+  touchedSurfaces.clear();
+}
+
 function transparentizeFullscreenSolids() {
-  const vw = window.innerWidth, vh = window.innerHeight;
-  const els = document.querySelectorAll('div');
+  const vw = window.innerWidth, vh = window.innerHeight, area = vw * vh;
+  if (!area) return [];
+  const scope = document.getElementById('root') || document.body;
   const touched = [];
-  for (const el of els) {
+  for (const el of scope.querySelectorAll('div')) {
+    if (el.classList.contains('backdrop-root') || el.closest('.backdrop-root')) continue;
+    if (el.dataset.backdropKeep === '1') continue;
+    if (el.childElementCount === 0) continue;        // 有背景的是容器，叶子直接跳过
+    const w = el.offsetWidth, h = el.offsetHeight;   // 便宜的面积过滤，先挡掉绝大多数节点
+    if (w * h < area * SURFACE_MIN_COVER) continue;
     const r = el.getBoundingClientRect();
-    // 覆盖 ≥90% 视口、背景不透明、自身不含大量直接文本
-    if (r.width < vw * 0.9 || r.height < vh * 0.9) continue;
-    if (el.textContent && el.textContent.length > 400) continue;
-    if (el.querySelector('textarea, input, [contenteditable]')) continue;
-    const bg = getComputedStyle(el).backgroundColor;
-    const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (!m) continue;
-    const alpha = m[4] === undefined ? 1 : parseFloat(m[4]);
-    if (alpha < 0.9) continue;
-    el.style.setProperty('background-color', 'transparent', 'important');
+    if (r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh) continue;
+    if (!hasOpaquePaint(el) || inOverlay(el)) continue;
+    clearSurface(el);
     touched.push(el);
+  }
+  // 输入区（通常只占视口 7% 左右，面积过滤抓不到）：清掉输入框上方最近的不透明容器
+  for (const input of scope.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""]')) {
+    if (input.closest('.backdrop-root')) continue;
+    let e = input.parentElement, depth = 0;
+    while (e && e !== scope && depth < 8) {
+      if (hasOpaquePaint(e) && !inOverlay(e)) { clearSurface(e); touched.push(e); break; }
+      e = e.parentElement; depth++;
+    }
   }
   return touched;
 }
@@ -291,10 +352,13 @@ export function apply(ctx) {
       '.backdrop-root ~ * .ydkMvW_root { background: transparent !important; }',
       '.backdrop-root ~ * .uV2eYG_root, .backdrop-root ~ * .uV2eYG_card, .backdrop-root ~ * .uV2eYG_scroll, .backdrop-root ~ * .uV2eYG_grow, .backdrop-root ~ * .uV2eYG_backdrop, .backdrop-root ~ * .uV2eYG_mirror, .backdrop-root ~ * .uV2eYG_input { background-color: transparent !important; background-image: none !important; box-shadow: none !important; }',
       '.backdrop-root ~ * .uV2eYG_input { color: #e8eefc !important; caret-color: #6ea8ff !important; }',
+      // 0.2.0-rc.2 已知类名：命中就立即生效，命中不了由 transparentizeFullscreenSolids() 兜底
+      '.backdrop-root ~ * .BynINW_frame, .backdrop-root ~ * .BynINW_sidebarCol, .backdrop-root ~ * .BynINW_centerCol, .backdrop-root ~ * .BynINW_detailsCol, .backdrop-root ~ * .Dc7zOa_root, .backdrop-root ~ * ._2H3hWW_root, .backdrop-root ~ * .RlGAzG_card { background: transparent !important; background-image: none !important; }',
     ].join('\n');
     document.head.appendChild(styleEl);
 
     // 3. 启动引擎
+    const createWhaleScene = config.whale.engine === 'video' ? createVideoWhale : createProceduralWhale;
     const whale = config.layers.whale
       ? createWhaleScene(whaleCanvas, { src: whaleSvg, ...config.whale })
       : null;
@@ -321,7 +385,9 @@ export function apply(ctx) {
       });
       themeObserver.observe(document.body, { attributes: true, attributeFilter: [DARK_ATTR] });
     }
-    // 类名 fallback：启动后再补一刀（等 app 渲染完成）
+    // 类名 fallback：启动即扫一次，之后每 500ms 补一次（应用会新建面板/页签，React 也可能重设样式）
+    transparentizeFullscreenSolids();
+    const surfaceTimer = setInterval(transparentizeFullscreenSolids, 500);
     const fallbackTimer = setTimeout(() => { transparentizeFullscreenSolids(); fixComposerTransparency(); injectShadowComposerStyles(); }, 2500);
     setTimeout(() => { fixComposerTransparency(); injectShadowComposerStyles(); removeSidebarGradients(); }, 300);
     const composerTimer = setInterval(() => { fixComposerTransparency(); injectShadowComposerStyles(); removeSidebarGradients(); }, 100);
@@ -340,6 +406,8 @@ export function apply(ctx) {
         if (map[name]) map[name].style.display = on ? '' : 'none';
       },
       setOpacity(v) { root.style.opacity = String(v); },
+      // 让鲸鱼立刻游一次（默认 cruise 模式下它只是偶尔路过）
+      pokeBurst(n = 1) { if (whale && whale.pokeBurst) whale.pokeBurst(n); },
       setConfig(patch) {
         for (const key of Object.keys(patch)) {
             if (key === 'opacity') { config.opacity = patch.opacity; continue; }
@@ -374,6 +442,8 @@ export function apply(ctx) {
     disposers.push(() => {
       clearTimeout(fallbackTimer);
       clearInterval(composerTimer);
+      clearInterval(surfaceTimer);
+      restoreSurfaces();
       composerObserver.disconnect();
       if (themeObserver) themeObserver.disconnect();
       if (whale) whale.dispose();

@@ -33,6 +33,7 @@ const host = readFileSync('lib/index.js', 'utf8');
 const client = readFileSync('lib/client.js', 'utf8');
 if (!client.includes('__ModuleLoader__.load')) throw new Error('client bundle 缺 load 包装');
 if (!client.includes('createWhaleCanvas')) throw new Error('client bundle 缺鲸鱼引擎');
+if (!client.includes('buildWhale')) throw new Error('client bundle 缺程序化鲸鱼引擎');
 if (!client.includes('createFishSchoolCanvas')) throw new Error('client bundle 缺鱼群引擎');
 if (!client.includes('createFluidBackground')) throw new Error('client bundle 缺流体引擎');
 if (!client.includes('createGridBackground')) throw new Error('client bundle 缺网格引擎');

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>程序化鲸鱼预览</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+  canvas.layer { position: fixed; inset: 0; width: 100%; height: 100%; }
+  #ui { position: fixed; inset: 0; pointer-events: none; color: #e6edf5; }
+  #ui.home .title { position: absolute; top: 30vh; width: 100%; text-align: center; font-size: 40px; font-weight: 600; letter-spacing: 2px; }
+  #ui.home .composer { position: absolute; top: calc(30vh + 90px); left: 50%; transform: translateX(-50%); width: min(760px, 80vw); }
+  #ui .composer { height: 104px; border-radius: 18px; background: rgba(20,24,32,.55); border: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(14px); padding: 16px 20px; box-sizing: border-box; color: #8a94a3; font-size: 15px; }
+  #ui.chat .col { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); width: min(760px, 80vw); font-size: 15px; line-height: 1.75; }
+  #ui.chat .col p { margin: 0 0 14px; }
+  #ui.chat .composer { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); width: min(760px, 80vw); }
+  #hud { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 8px; z-index: 5; }
+  #hud button { background: rgba(255,255,255,.08); color: #cfe3f5; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="fluid" class="layer"></canvas>
+<canvas id="whale" class="layer"></canvas>
+<canvas id="grid" class="layer"></canvas>
+<div id="ui"></div>
+<div id="hud">
+  <button id="b-mode"></button><button id="b-style"></button><button id="b-engine"></button>
+  <button id="b-scene"></button><button id="b-burst">惊动</button>
+</div>
+<script type="module">
+  import { createFluidBackground } from './src/engine/fluid-background.js';
+  import { createGridBackground } from './src/engine/grid-background.js';
+  import { createWhaleCanvas as createProcedural } from './src/engine/whale-procedural.js';
+  import { createWhaleCanvas as createVideo } from './src/engine/whale-canvas.js';
+
+  const q = new URLSearchParams(location.search);
+  const state = {
+    mode: q.get('mode') || 'hover',
+    style: q.get('style') || 'ascii',
+    engine: q.get('engine') || 'procedural',
+    scene: q.get('scene') || 'home',
+  };
+  if (q.get('hud') === '0') document.getElementById('hud').style.display = 'none';
+
+  createFluidBackground(document.getElementById('fluid'), { glowIntensity: 0.07, lightCore: 0.1, lightHalo: 0.12, vignette: 0.42, interactive: false });
+  createGridBackground(document.getElementById('grid'), { lineOpacity: 0.06, dotOpacity: 0.12 });
+
+  const whaleCanvas = document.getElementById('whale');
+  let whale = null;
+  function mount() {
+    if (whale) whale.dispose();
+    const opts = {
+      mode: state.mode, style: state.style,
+      opacity: state.scene === 'chat' ? 0.55 : 1,
+      cruise: { firstDelay: 0.5, gap: [4, 8] },   // 预览里缩短间隔，方便观察
+    };
+    if (q.get('cell')) opts.cell = +q.get('cell');
+    whale = state.engine === 'video' ? createVideo(whaleCanvas, { swim: state.mode === 'cruise' }) : createProcedural(whaleCanvas, opts);
+    window.__whale = whale;
+  }
+
+  const chatText = [
+    '背景分成"舞台"和"阅读区"两部分：舞台可以热闹，阅读区只留安静的深色底。',
+    '程序化鲸鱼的形状每帧由脊线和行波算出来，相位连续，循环没有接缝，所以不需要故障特效。',
+    '字符列宽用 measureText 实测，网格锚定在鲸鱼身上，游动时字符不会闪。',
+    '对话场景里鲸鱼只偶尔游过，透明度降到一半；落地页可以更显眼一些。',
+  ];
+  function renderUI() {
+    const ui = document.getElementById('ui');
+    ui.className = state.scene;
+    ui.innerHTML = state.scene === 'home'
+      ? '<div class="title">探索未至之境</div><div class="composer">给 DeepSeek 发送消息</div>'
+      : '<div class="col">' + chatText.map((t) => '<p>' + t + '</p>').join('') + '</div><div class="composer">继续提问</div>';
+  }
+
+  const LABEL = {
+    mode: { hover: '模式：悬停', cruise: '模式：巡游' },
+    style: { ascii: '样式：字符', dots: '样式：点阵' },
+    engine: { procedural: '引擎：程序化', video: '引擎：视频帧' },
+    scene: { home: '场景：落地页', chat: '场景：对话' },
+  };
+  const CYCLE = {
+    mode: ['hover', 'cruise'], style: ['ascii', 'dots'],
+    engine: ['procedural', 'video'], scene: ['home', 'chat'],
+  };
+  function renderHud() {
+    for (const k of Object.keys(LABEL)) document.getElementById('b-' + k).textContent = LABEL[k][state[k]];
+  }
+  for (const k of Object.keys(CYCLE)) {
+    document.getElementById('b-' + k).addEventListener('click', () => {
+      const list = CYCLE[k];
+      state[k] = list[(list.indexOf(state[k]) + 1) % list.length];
+      renderHud();
+      if (k === 'scene') renderUI();
+      mount();
+    });
+  }
+  document.getElementById('b-burst').addEventListener('click', () => whale && whale.pokeBurst(1));
+
+  renderUI();
+  renderHud();
+  mount();
+</script>
+</body>
+</html>
